@@ -15,7 +15,7 @@ from numbers import Integral, Real
 import numpy as np
 from scipy.sparse import issparse
 
-from sklearn.base import (
+from ..base import (
     BaseEstimator,
     ClassifierMixin,
     MultiOutputMixin,
@@ -24,13 +24,13 @@ from sklearn.base import (
     clone,
     is_classifier,
 )
-from sklearn.utils import Bunch, check_random_state, compute_sample_weight
-from sklearn.utils._param_validation import Hidden, Interval, RealNotInt, StrOptions
-from sklearn.utils.multiclass import (
+from ..utils import Bunch, check_random_state, compute_sample_weight
+from ..utils._param_validation import Hidden, Interval, RealNotInt, StrOptions
+from ..utils.multiclass import (
     _check_partial_fit_first_call,
     check_classification_targets,
 )
-from sklearn.utils.validation import (
+from ..utils.validation import (
     _assert_all_finite_element_wise,
     _check_sample_weight,
     assert_all_finite,
@@ -40,7 +40,10 @@ from sklearn.utils.validation import (
 from . import _criterion, _splitter, _tree
 from ._criterion import BaseCriterion
 from ._splitter import BaseSplitter
-from ._splitter import LexicoRFSplitter
+from ._splitter import (
+    LexicoRFSplitter,
+    TpTSplitter,
+)
 from ._tree import (
     BestFirstTreeBuilder,
     DepthFirstTreeBuilder,
@@ -80,7 +83,8 @@ CRITERIA_REG = {
 DENSE_SPLITTERS = {
     "best": _splitter.BestSplitter,
     "random": _splitter.RandomSplitter,
-    "lexicoRF": _splitter.LexicoRFSplitter
+    "lexicoRF": _splitter.LexicoRFSplitter,
+    "TpT": _splitter.TpTSplitter
 }
 
 SPARSE_SPLITTERS = {
@@ -101,7 +105,7 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
     """
 
     _parameter_constraints: dict = {
-        "splitter": [StrOptions({"best", "random", "lexicoRF"})],
+        "splitter": [StrOptions({"best", "random", "lexicoRF", "TpT"})],
         "max_depth": [Interval(Integral, 1, None, closed="left"), None],
         "min_samples_split": [
             Interval(Integral, 2, None, closed="left"),
