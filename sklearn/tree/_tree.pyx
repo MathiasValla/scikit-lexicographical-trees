@@ -150,6 +150,7 @@ cdef struct StackRecord:
     intp_t n_constant_features
     float64_t lower_bound
     float64_t upper_bound
+    intp_t time_index  # TpT: inherited parent split-time index t_p for this node
 
 
 cdef class DepthFirstTreeBuilder(TreeBuilder):
@@ -209,7 +210,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
         cdef intp_t PARENT
         cdef intp_t CHILD
         cdef intp_t i
-        false_roots = {}
+        false_roots = {}   # maps (parent_id, is_left) -> [count, depth, parent_time_index]
         X_copy = {}
         y_copy = {}
         for i in range(X.shape[0]):
@@ -236,7 +237,14 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 X_copy[(parent_i, left)].append(X[i])
                 y_copy[(parent_i, left)].append(y[i])
             else:
-                false_roots[(parent_i, left)] = [1, depth_i]
+                # Also store parent's time index for TpT: If parent is a leaf / undefined feature (<0), fall back to 0. 
+                # If parent is a leaf / undefined feature (<0), fall back to 0.
+                parent_feature = int(tree.feature[parent_i])
+                if self.feature_index_map is not None and parent_feature >= 0:
+                    parent_time_index = int(self.feature_index_map.get(parent_feature, 0))
+                else:
+                    parent_time_index = 0
+                false_roots[(parent_i, left)] = [1, depth_i, parent_time_index]
                 X_copy[(parent_i, left)] = [X[i]]
                 y_copy[(parent_i, left)] = [y[i]]
 
@@ -322,8 +330,10 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
         cdef float64_t middle_value
         cdef bint is_leaf
         cdef intp_t max_depth_seen = -1 if first else tree.max_depth
-
         cdef intp_t rc = 0
+        # TpT: scratch variables for computing child time indices
+        cdef intp_t child_tp = 0
+        cdef intp_t child_tp2 = 0
 
         cdef stack[StackRecord] builder_stack
         cdef stack[StackRecord] update_stack
@@ -331,6 +341,9 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
 
         cdef ParentInfo parent_record
         _init_parent_record(&parent_record)
+        # NEW (TpT): locals for time propagation
+        cdef intp_t parent_time_index
+
 
         if not first:
             # push reached leaf nodes onto stack
@@ -346,6 +359,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                     "n_constant_features": 0,
                     "lower_bound": -INFINITY,
                     "upper_bound": INFINITY,
+                    "time_index": value[2],  # TpT: inherit parent's t_p for this subtree
                 })
                 start += value[0]
         else:
@@ -360,6 +374,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 "n_constant_features": 0,
                 "lower_bound": -INFINITY,
                 "upper_bound": INFINITY,
+                "time_index": 0,  # root has t_p = 0
             })
 
         with nogil:
@@ -376,10 +391,11 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 parent_record.n_constant_features = stack_record.n_constant_features
                 parent_record.lower_bound = stack_record.lower_bound
                 parent_record.upper_bound = stack_record.upper_bound
+                parent_time_index = stack_record.time_index  # NEW (TpT)
 
                 n_node_samples = end - start
                 splitter.node_reset(start, end, &weighted_n_node_samples)
-
+                
                 is_leaf = (depth >= max_depth or
                            n_node_samples < min_samples_split or
                            n_node_samples < 2 * min_samples_leaf or
@@ -393,6 +409,8 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 is_leaf = is_leaf or parent_record.impurity <= EPSILON
 
                 if not is_leaf:
+                    # NEW (TpT): set parent time for this node before searching its split
+                    splitter.node_time_index = parent_time_index
                     splitter.node_split(
                         &parent_record,
                         split_ptr,
@@ -462,6 +480,12 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                         right_child_max = middle_value
 
                     # Push right child on stack
+                    # TpT: child nodes inherit t_p = wave_index(split.feature)
+                    child_tp = 0
+                    with gil:
+                        if self.feature_index_map is not None:
+                            child_tp = <intp_t> self.feature_index_map.get(split.feature, 0)
+
                     builder_stack.push({
                         "start": split.pos,
                         "end": end,
@@ -472,6 +496,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                         "n_constant_features": parent_record.n_constant_features,
                         "lower_bound": right_child_min,
                         "upper_bound": right_child_max,
+                        "time_index": child_tp,  # NEW (TpT)
                     })
 
                     # Push left child on stack
@@ -485,6 +510,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                         "n_constant_features": parent_record.n_constant_features,
                         "lower_bound": left_child_min,
                         "upper_bound": left_child_max,
+                        "time_index": child_tp,  # NEW (TpT)
                     })
                 elif store_leaf_values and is_leaf:
                     # copy leaf values to leaf_values array
@@ -506,10 +532,11 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 parent_record.n_constant_features = stack_record.n_constant_features
                 parent_record.lower_bound = stack_record.lower_bound
                 parent_record.upper_bound = stack_record.upper_bound
+                parent_time_index = stack_record.time_index  # NEW (TpT)
 
                 n_node_samples = end - start
                 splitter.node_reset(start, end, &weighted_n_node_samples)
-
+                
                 is_leaf = (depth >= max_depth or
                            n_node_samples < min_samples_split or
                            n_node_samples < 2 * min_samples_leaf or
@@ -523,6 +550,9 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 is_leaf = is_leaf or parent_record.impurity <= EPSILON
 
                 if not is_leaf:
+                    # NEW (TpT): set parent time for this node before searching its split
+                    splitter.node_time_index = parent_time_index
+
                     splitter.node_split(
                         &parent_record,
                         split_ptr,
@@ -591,6 +621,12 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                         right_child_max = middle_value
 
                     # Push right child on stack
+                    # TpT: child nodes inherit t_p = wave_index(split.feature)
+                    child_tp2 = 0
+                    with gil:
+                        if self.feature_index_map is not None:
+                            child_tp2 = <intp_t> self.feature_index_map.get(split.feature, 0)
+
                     builder_stack.push({
                         "start": split.pos,
                         "end": end,
@@ -601,6 +637,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                         "n_constant_features": parent_record.n_constant_features,
                         "lower_bound": right_child_min,
                         "upper_bound": right_child_max,
+                        "time_index": child_tp2,  # NEW (TpT)
                     })
 
                     # Push left child on stack
@@ -614,6 +651,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                         "n_constant_features": parent_record.n_constant_features,
                         "lower_bound": left_child_min,
                         "upper_bound": left_child_max,
+                        "time_index": child_tp2,  # NEW (TpT)
                     })
                 elif store_leaf_values and is_leaf:
                     # copy leaf values to leaf_values array
@@ -652,6 +690,8 @@ cdef struct FrontierRecord:
     float64_t lower_bound
     float64_t upper_bound
     float64_t middle_value
+    intp_t time_index  # NEW (TpT): parent's chosen split time t_p for this node
+
 
 cdef inline bool _compare_records(
     const FrontierRecord& left,
@@ -776,6 +816,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
                 depth=0,
                 parent_record=&parent_record,
                 res=&split_node_left,
+                parent_time_index=0,  # NEW (TpT): root t_p
             )
             if rc >= 0:
                 _add_to_frontier(split_node_left, frontier)
@@ -849,6 +890,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
                         depth=record.depth + 1,
                         parent_record=&parent_record,
                         res=&split_node_left,
+                        parent_time_index=record.time_index,  # NEW (TpT)
                     )
                     if rc == -1:
                         break
@@ -871,6 +913,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
                         depth=record.depth + 1,
                         parent_record=&parent_record,
                         res=&split_node_right,
+                        parent_time_index=record.time_index,  # NEW (TpT)
                     )
                     if rc == -1:
                         break
@@ -902,7 +945,8 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         Node* parent,
         intp_t depth,
         ParentInfo* parent_record,
-        FrontierRecord* res
+        FrontierRecord* res,
+        intp_t parent_time_index  # NEW (TpT): t_p for this node
     ) except -1 nogil:
         """Adds node w/ partition ``[start, end)`` to the frontier. """
         cdef SplitRecord split
@@ -918,6 +962,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         cdef float64_t min_impurity_decrease = self.min_impurity_decrease
         cdef float64_t weighted_n_node_samples
         cdef bint is_leaf
+        cdef intp_t child_tp3  # TpT
 
         splitter.node_reset(start, end, &weighted_n_node_samples)
 
@@ -936,6 +981,8 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
                    )
 
         if not is_leaf:
+            # NEW (TpT): set parent time for this node before searching its split
+            splitter.node_time_index = parent_time_index
             splitter.node_split(
                 parent_record,
                 split_ptr,
@@ -972,6 +1019,8 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         res.lower_bound = parent_record.lower_bound
         res.upper_bound = parent_record.upper_bound
         res.middle_value = splitter.criterion.middle_value()
+        # NEW (TpT): default carry-over if leaf or if no split time recorded
+        res.time_index = parent_time_index
 
         if not is_leaf:
             # is split node
@@ -980,7 +1029,12 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
             res.improvement = split.improvement
             res.impurity_left = split.impurity_left
             res.impurity_right = split.impurity_right
-
+            # NEW (TpT): children will use this as their t_p
+            child_tp3 = parent_time_index
+            with gil:
+                if self.feature_index_map is not None and split.feature >= 0:
+                    child_tp3 = <intp_t> self.feature_index_map.get(split.feature, parent_time_index)
+            res.time_index = child_tp3
         else:
             # is leaf => 0 improvement
             res.pos = end
