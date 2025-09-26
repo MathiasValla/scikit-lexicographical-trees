@@ -3,8 +3,10 @@
 
 from cython cimport final
 from libc.math cimport isnan
+from libc.math cimport exp # For TpT
 from libc.stdlib cimport qsort
 from libc.string cimport memcpy
+from libc.stdio cimport printf
 
 from ._criterion cimport Criterion
 from ._utils cimport log
@@ -894,7 +896,9 @@ cdef inline int node_TpT_split(
     dict feature_index_map
 ) except -1 nogil:
     """
-    Find the best split on node samples[start:end] using LexicoRF splitting strategy.
+    Find the best split on node samples[start:end] using TpT time-penalized splitting.
+    The proxy impurity improvement is multiplied by exp(-threshold_gain * Δt_proxy),
+    where Δt_proxy is approximated by the wave index of the splitting feature.
     """
     # Updated types for indexing and size definitions
     cdef intp_t start = splitter.start
@@ -922,12 +926,17 @@ cdef inline int node_TpT_split(
     cdef intp_t p
     cdef intp_t p_prev
 
-    cdef intp_t best_time_index = 0
-    cdef intp_t current_time_index = 0
-    cdef intp_t current_feature_in_group = 0
-    cdef intp_t best_feature_in_group = 0
+    # TpT penalty helpers
+    cdef intp_t wave_idx = -1
+    cdef intp_t dt = 0
+    cdef intp_t node_tp = splitter.node_time_index
+
+    # Predeclare vars used in the inner loop (Cython forbids cdef after statements)
+    cdef double penalized_improvement
 
     _init_split(&best_split, end)
+    # NEW (TpT): initialize t_c record
+    best_split.split_time_index = -1
     partitioner.init_node_split(start, end)
 
     # Sample up to max_features without replacement using a
@@ -1010,41 +1019,40 @@ cdef inline int node_TpT_split(
             if splitter.check_postsplit_conditions() == 1:
                 continue
 
+           # --- TpT penalized gain (Phase 1): penalize by wave index as Δt proxy ---
+            # raw proxy impurity improvement (as in sklearn)
             current_proxy_improvement = criterion.proxy_impurity_improvement()
-            current_proxy_improvement = criterion.proxy_impurity_improvement() / (
-                    (current_split.pos - start) +
-                    (end - current_split.pos)
-            )
-            current_feature = current_split.feature
-            best_feature = best_split.feature
 
+            # Map feature -> wave index using feature_index_map (under GIL)
+            wave_idx = -1
             with gil:
-                current_feature_in_group = feature_index_map.get(current_feature, -1)
-                best_feature_in_group = feature_index_map.get(best_feature, -1) if current_feature_in_group != -1 else -1
+                wave_idx = feature_index_map.get(current_split.feature, -1)
 
-                def calculate_threshold_and_set_best_split():
-                    current_split.threshold = (feature_values[p_prev] / 2.0 + feature_values[p] / 2.0)
-                    if current_split.threshold in [feature_values[p], INFINITY, -INFINITY]:
-                        current_split.threshold = feature_values[p_prev]
-                    return current_split
+            # Apply time penalty with true Δt from builder:
+            # Δt = max(0, t_c - t_p) where
+            #   t_c := wave_idx, t_p := self.node_time_index
+            if wave_idx >= 0:
+                dt = wave_idx - node_tp
+                if dt < 0:
+                    dt = 0
+                penalized_improvement = current_proxy_improvement * exp(-threshold_gain * dt)
+            else:
+                penalized_improvement = current_proxy_improvement
+            # Keep the best penalized split
+            if penalized_improvement > best_proxy_improvement:
+                best_proxy_improvement = penalized_improvement
 
-                if current_feature_in_group != -1 and best_feature_in_group != -1:
-                    if current_proxy_improvement - threshold_gain > best_proxy_improvement or best_proxy_improvement == -INFINITY:
-                        best_proxy_improvement = current_proxy_improvement
-                        best_time_index = current_feature_in_group
-                        best_split = calculate_threshold_and_set_best_split()
-                    elif best_proxy_improvement - threshold_gain <= current_proxy_improvement <= best_proxy_improvement + threshold_gain:
-                        current_time_index = current_feature_in_group
-                        if current_time_index == best_time_index and current_proxy_improvement > best_proxy_improvement:
-                            best_proxy_improvement = current_proxy_improvement
-                            best_split = calculate_threshold_and_set_best_split()
-                        elif current_time_index > best_time_index:
-                            best_time_index = current_time_index
-                            best_proxy_improvement = current_proxy_improvement
-                            best_split = calculate_threshold_and_set_best_split()
-                elif current_proxy_improvement > best_proxy_improvement:
-                    best_proxy_improvement = current_proxy_improvement
-                    best_split = calculate_threshold_and_set_best_split()
+                # Robust threshold midpoint (avoid duplicates / +/-inf)
+                current_split.threshold = (feature_values[p_prev] / 2.0 + feature_values[p] / 2.0)
+                if (current_split.threshold == feature_values[p] or
+                        current_split.threshold == INFINITY or
+                        current_split.threshold == -INFINITY):
+                    current_split.threshold = feature_values[p_prev]
+
+                # C-level struct copy
+                best_split = current_split
+                # NEW (TpT): remember chosen t_c for children
+                best_split.split_time_index = wave_idx
 
     # Reorganize into samples[start:best_split.pos] + samples[best_split.pos:end]
     if best_split.pos < end:
@@ -2173,7 +2181,7 @@ cdef class RandomSparseSplitter(Splitter):
             parent_record,
         )
 cdef class TpTSplitter(Splitter):
-    """Splitter for finding the LexicoRF split on dense data."""
+    """Splitter for finding the TpT split on dense data."""
     cdef DensePartitioner partitioner
 
     cdef int init(
@@ -2189,6 +2197,10 @@ cdef class TpTSplitter(Splitter):
         self.partitioner = DensePartitioner(
             X, self.samples, self.feature_values, missing_values_in_feature_mask
         )
+        # default t_p at root if builder didn't set it yet
+        self.node_time_index = 0
+        # if passing from builder
+        self.feature_index_map = feature_index_map
 
     cdef int node_split(
         self,
