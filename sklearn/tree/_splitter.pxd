@@ -21,6 +21,8 @@ cdef struct SplitRecord:
     float64_t impurity_right  # Impurity of the right split.
     unsigned char missing_go_to_left  # Controls if missing values go to the left node.
     intp_t n_missing            # Number of missing values for the feature being split on
+    intp_t split_time_index     # NEW (TpT): t_c as wave index for the chosen best split
+
 
 cdef class BaseSplitter:
     """Abstract interface for splitter."""
@@ -90,7 +92,8 @@ cdef class Splitter(BaseSplitter):
     cdef const float64_t[:, ::1] y
 
     cdef float64_t threshold_gain
-    cdef dict feature_index_map
+    cdef public dict feature_index_map
+    cdef public intp_t node_time_index  # TpT: inherited parent time index t_p for the node being split
 
     # Monotonicity constraints for each feature.
     # The encoding is as follows:
