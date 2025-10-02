@@ -31,12 +31,14 @@ cdef float32_t EXTRACT_NNZ_SWITCH = 0.1
 cdef inline void _init_split(SplitRecord* self, intp_t start_pos) noexcept nogil:
     self.impurity_left = INFINITY
     self.impurity_right = INFINITY
+    self.impurity_duration = INFINITY  # NEW (Phase 2)
     self.pos = start_pos
     self.feature = 0
     self.threshold = 0.
     self.improvement = -INFINITY
     self.missing_go_to_left = False
     self.n_missing = 0
+    self.split_time_index = -1  # keep or drop depending on whether you use TpT indexing
 
 cdef class BaseSplitter:
     """This is an abstract interface for splitters.
@@ -933,6 +935,7 @@ cdef inline int node_TpT_split(
 
     # Predeclare vars used in the inner loop (Cython forbids cdef after statements)
     cdef double penalized_improvement
+    cdef double impL, impR, impD     # <-- add holders for the three impurities
 
     _init_split(&best_split, end)
     # NEW (TpT): initialize t_c record
@@ -1021,7 +1024,7 @@ cdef inline int node_TpT_split(
 
            # --- TpT penalized gain (Phase 1): penalize by wave index as Δt proxy ---
             # raw proxy impurity improvement (as in sklearn)
-            current_proxy_improvement = criterion.proxy_impurity_improvement()
+            current_proxy_improvement = criterion.proxy_impurity_improvement_ternary()
 
             # Map feature -> wave index using feature_index_map (under GIL)
             wave_idx = -1
@@ -1064,14 +1067,23 @@ cdef inline int node_TpT_split(
         )
         criterion.reset()
         criterion.update(best_split.pos)
-        criterion.children_impurity(
-            &best_split.impurity_left, &best_split.impurity_right
+    
+        # Default duration impurity to neutral; stub will keep it as +INF
+        impL = 0.0
+        impR = 0.0
+        impD = INFINITY
+
+        criterion.children_impurity_three(&impL, &impR, &impD)
+
+        best_split.impurity_left = impL
+        best_split.impurity_right = impR
+        best_split.impurity_duration = impD
+
+        best_split.improvement = criterion.impurity_improvement_ternary(
+            impurity, impL, impR, impD
         )
-        best_split.improvement = criterion.impurity_improvement(
-            impurity,
-            best_split.impurity_left,
-            best_split.impurity_right
-        )
+
+        best_split.n_missing = 0  # not used yet
 
     # Respect invariant for constant features: the original order of
     # element in features[:n_known_constants] must be preserved for sibling
