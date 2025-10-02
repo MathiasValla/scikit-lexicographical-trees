@@ -316,6 +316,38 @@ cdef class Criterion(BaseCriterion):
             for k in range(self.n_outputs):
                 dest[i].push_back(self.y[j, k])
 
+    # --- Phase 2 (placeholder ternary APIs) ---------------------------------
+    # These default to binary behavior so this commit has NO functional change.
+
+    cdef void children_impurity_three(self,
+                                      float64_t* impurity_left,
+                                      float64_t* impurity_right,
+                                      float64_t* impurity_duration) noexcept nogil:
+        """
+        Placeholder ternary impurity: delegate to binary and ignore duration.
+        """
+        cdef float64_t il, ir
+        self.children_impurity(&il, &ir)
+        impurity_left[0] = il
+        impurity_right[0] = ir
+        impurity_duration[0] = INFINITY  # not used yet
+
+    cdef float64_t impurity_improvement_ternary(self,
+                                                float64_t impurity_parent,
+                                                float64_t impurity_left,
+                                                float64_t impurity_right,
+                                                float64_t impurity_duration) noexcept nogil:
+        """
+        Placeholder ternary improvement: ignore duration for now.
+        """
+        return self.impurity_improvement(impurity_parent, impurity_left, impurity_right)
+
+    cdef float64_t proxy_impurity_improvement_ternary(self) noexcept nogil:
+        """
+        Placeholder ternary proxy: same as binary proxy for now.
+        """
+        return self.proxy_impurity_improvement()
+
 
 cdef inline void _move_sums_classification(
     ClassificationCriterion criterion,
