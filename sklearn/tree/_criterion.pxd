@@ -102,6 +102,17 @@ cdef class Criterion(BaseCriterion):
         vector[vector[float64_t]]& dest
     ) noexcept nogil
 
+    cdef void children_impurity_three(self,
+                                      float64_t* impurity_left,
+                                      float64_t* impurity_right,
+                                      float64_t* impurity_duration) noexcept nogil
+    cdef float64_t impurity_improvement_ternary(self,
+                                                float64_t impurity_parent,
+                                                float64_t impurity_left,
+                                                float64_t impurity_right,
+                                                float64_t impurity_duration) noexcept nogil
+    cdef float64_t proxy_impurity_improvement_ternary(self) noexcept nogil
+
 cdef class ClassificationCriterion(Criterion):
     """Abstract criterion for classification."""
 
