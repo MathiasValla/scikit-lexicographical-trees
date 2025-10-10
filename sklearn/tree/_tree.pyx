@@ -436,6 +436,16 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                     rc = -1
                     break
 
+                # --- NEW (TpT): persist per-node TpT metadata on the node ---
+                if not is_leaf:
+                    # we have already set: split = deref(split_ptr)
+                    tree.nodes[node_id].split_time_index = split.split_time_index
+                    tree.nodes[node_id].impurity_duration = split.impurity_duration
+                else:
+                    # carry the parent's t_p for leaves
+                    tree.nodes[node_id].split_time_index = parent_time_index
+                    # keep impurity_duration at default (INF) for now
+
                 # Store value for all nodes, to facilitate tree/model
                 # inspection and interpretation
                 splitter.node_value(tree.value + node_id * tree.value_stride)
@@ -576,6 +586,13 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 if node_id == INTPTR_MAX:
                     rc = -1
                     break
+
+                # --- NEW (TpT): persist per-node TpT metadata on the node ---
+                if not is_leaf:
+                    tree.nodes[node_id].split_time_index = split.split_time_index
+                    tree.nodes[node_id].impurity_duration = split.impurity_duration
+                else:
+                    tree.nodes[node_id].split_time_index = parent_time_index
 
                 # Store value for all nodes, to facilitate tree/model
                 # inspection and interpretation
@@ -1006,6 +1023,14 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         if node_id == INTPTR_MAX:
             return -1
 
+        # --- NEW (TpT): persist per-node TpT metadata on the node ---
+        if not is_leaf:
+            # split was set from deref(split_ptr) above
+            tree.nodes[node_id].split_time_index = split.split_time_index
+            tree.nodes[node_id].impurity_duration = split.impurity_duration
+        else:
+            tree.nodes[node_id].split_time_index = parent_time_index
+
         # compute values also for split nodes (might become leafs later).
         splitter.node_value(tree.value + node_id * tree.value_stride)
         if splitter.with_monotonic_cst:
@@ -1208,6 +1233,9 @@ cdef class BaseTree:
         node.impurity = impurity
         node.n_node_samples = n_node_samples
         node.weighted_n_node_samples = weighted_n_node_samples
+        # --- NEW (TpT defaults) ---
+        node.split_time_index = -1
+        node.impurity_duration = INFINITY
 
         if parent != _TREE_UNDEFINED:
             if is_left:
@@ -1260,6 +1288,9 @@ cdef class BaseTree:
         node.impurity = impurity
         node.n_node_samples = n_node_samples
         node.weighted_n_node_samples = weighted_n_node_samples
+        # --- NEW (TpT defaults) ---
+        node.split_time_index = -1
+        node.impurity_duration = INFINITY
 
         if is_leaf:
             if self._set_leaf_node(split_node, node, node_id) != 1:
@@ -1846,6 +1877,14 @@ cdef class Tree(BaseTree):
             leaf_node_samples[node_id] = self._get_value_samples_ndarray(node_id)
         return leaf_node_samples
 
+    @property
+    def split_time_index(self):
+        return self._get_node_ndarray()['split_time_index'][:self.node_count]
+
+    @property
+    def impurity_duration(self):
+        return self._get_node_ndarray()['impurity_duration'][:self.node_count]
+
     # TODO: Convert n_classes to cython.integral memory view once
     #  https://github.com/cython/cython/issues/5243 is fixed
     def __cinit__(self, intp_t n_features, cnp.ndarray n_classes, intp_t n_outputs, *args):
@@ -2063,7 +2102,8 @@ def _dtype_to_dict(dtype):
 
 def _dtype_dict_with_modified_bitness(dtype_dict):
     # field names in Node struct with intp_t types (see sklearn/tree/_tree.pxd)
-    indexing_field_names = ["left_child", "right_child", "feature", "n_node_samples"]
+    indexing_field_names = ["left_child", "right_child", "feature", "n_node_samples",
+                            "split_time_index"]  # <-- added for TpT
 
     expected_dtype_size = str(struct.calcsize("P"))
     allowed_dtype_size = "8" if expected_dtype_size == "4" else "4"
@@ -2524,6 +2564,10 @@ cdef _build_pruned_tree(
             if new_node_id == INTPTR_MAX:
                 rc = -1
                 break
+
+            # --- NEW (TpT): copy per-node TpT metadata into pruned tree ---
+            tree.nodes[new_node_id].split_time_index = node.split_time_index
+            tree.nodes[new_node_id].impurity_duration = node.impurity_duration
 
             # copy value from original tree to new tree
             orig_value_ptr = orig_tree.value + value_stride * orig_node_id
