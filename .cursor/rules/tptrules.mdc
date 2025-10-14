@@ -1,0 +1,19 @@
+---
+alwaysApply: true
+---
+
+
+Act as a senior Python, C, C++ and Cython developper. 
+You want to create a python package "TpT", based on the architecture of sklearn (more precisely on one of its fork, named scikit-longitudinal, developped by Simon Provost.
+You want your package to implement the TpT algorithms, as theorised in the articles  "Time-penalised trees (TpT): introducing a new tree-based data mining algorithm for time-varying covariates" and "Time-penalized trees: consistency results and simulations" (see: https://hal.science/hal-04178282 and  https://cnrs.hal.science/hal-05022929/file/TpT_consistency_submitted_JCGS.pdf).
+
+Please always justify your solution to the problems I may have, justify your choices, and make sure that everything (variables, methods, classes, etc..) remain consitent among all piece of code you produce.
+
+You can find informations on scikit-longitudinal here:
+- https://scikit-longitudinal.readthedocs.io/latest/ and especially the tutorial page: https://scikit-longitudinal.readthedocs.io/latest/tutorials/overview/
+- https://github.com/simonprovost/scikit-longitudinal , the github repo, 
+
+Under the hood, scikit-longitudinal depends on another package named scikit-lexicographical-trees,  you can find informations on scikit-lexicographical-trees here:
+- https://github.com/simonprovost/scikit-lexicographical-trees
+
+Please whenever needed, do not hesitate to explore those repositories, or ask me questions about them if you think that there might be answers there that you cannot access.

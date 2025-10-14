@@ -999,32 +999,34 @@ cdef inline int node_TpT_split(
         features[f_i], features[f_j] = features[f_j], features[f_i]
 
         # Evaluate all splits
-        # At this point, the criterion has a view into the samples that was sorted
-        # by the partitioner. The criterion will use that ordering when evaluating the splits.
-        criterion.reset()
-        p = start
+        # If there are missing values for this feature, evaluate both missing→right and missing→left
+        n_searches = 2 if partitioner.n_missing != 0 else 1
+        for i in range(n_searches):
+            criterion.missing_go_to_left = (i == 1)
+            criterion.init_missing(partitioner.n_missing)
+            criterion.reset()
+            p = start
 
-        while p < end:
-            partitioner.next_p(&p_prev, &p)
+            while p < end:
+                partitioner.next_p(&p_prev, &p)
 
-            if p >= end:
-                continue
+                if p >= end:
+                    continue
 
-            current_split.pos = p
+                current_split.pos = p
 
-            # Reject if min_samples_leaf is not guaranteed
-            if splitter.check_presplit_conditions(&current_split, 0, 0) == 1:
-                continue
+                # Reject if min_samples_leaf is not guaranteed
+                if splitter.check_presplit_conditions(&current_split, partitioner.n_missing, criterion.missing_go_to_left) == 1:
+                    continue
 
-            criterion.update(current_split.pos)
+                criterion.update(current_split.pos)
 
-            # Reject if min_weight_leaf is not satisfied
-            if splitter.check_postsplit_conditions() == 1:
-                continue
+                # Reject if min_weight_leaf is not satisfied
+                if splitter.check_postsplit_conditions() == 1:
+                    continue
 
-           # --- TpT penalized gain (Phase 1): penalize by wave index as Δt proxy ---
-            # raw proxy impurity improvement (as in sklearn)
-            current_proxy_improvement = criterion.proxy_impurity_improvement_ternary()
+                # TpT penalized gain using ternary proxy (binary proxy by default)
+                current_proxy_improvement = criterion.proxy_impurity_improvement_ternary()
 
             # Map feature -> wave index using feature_index_map (under GIL)
             wave_idx = -1
@@ -1041,21 +1043,21 @@ cdef inline int node_TpT_split(
                 penalized_improvement = current_proxy_improvement * exp(-threshold_gain * dt)
             else:
                 penalized_improvement = current_proxy_improvement
-            # Keep the best penalized split
-            if penalized_improvement > best_proxy_improvement:
-                best_proxy_improvement = penalized_improvement
+                # Keep the best penalized split
+                if penalized_improvement > best_proxy_improvement:
+                    best_proxy_improvement = penalized_improvement
 
-                # Robust threshold midpoint (avoid duplicates / +/-inf)
-                current_split.threshold = (feature_values[p_prev] / 2.0 + feature_values[p] / 2.0)
-                if (current_split.threshold == feature_values[p] or
-                        current_split.threshold == INFINITY or
-                        current_split.threshold == -INFINITY):
-                    current_split.threshold = feature_values[p_prev]
+                    # Robust threshold midpoint (avoid duplicates / +/-inf)
+                    current_split.threshold = (feature_values[p_prev] / 2.0 + feature_values[p] / 2.0)
+                    if (current_split.threshold == feature_values[p] or
+                            current_split.threshold == INFINITY or
+                            current_split.threshold == -INFINITY):
+                        current_split.threshold = feature_values[p_prev]
 
-                # C-level struct copy
-                best_split = current_split
-                # NEW (TpT): remember chosen t_c for children
-                best_split.split_time_index = wave_idx
+                    # C-level struct copy
+                    best_split = current_split
+                    # NEW (TpT): remember chosen t_c for children
+                    best_split.split_time_index = wave_idx
 
     # Reorganize into samples[start:best_split.pos] + samples[best_split.pos:end]
     if best_split.pos < end:
@@ -1065,13 +1067,9 @@ cdef inline int node_TpT_split(
             best_split.feature,
             0
         )
+        # Re-evaluate impurities at best split, respecting missing routing
         criterion.reset()
         criterion.update(best_split.pos)
-    
-        # Default duration impurity to neutral; stub will keep it as +INF
-        impL = 0.0
-        impR = 0.0
-        impD = INFINITY
 
         criterion.children_impurity_three(&impL, &impR, &impD)
 
@@ -1083,7 +1081,7 @@ cdef inline int node_TpT_split(
             impurity, impL, impR, impD
         )
 
-        best_split.n_missing = 0  # not used yet
+        best_split.n_missing = partitioner.n_missing
 
     # Respect invariant for constant features: the original order of
     # element in features[:n_known_constants] must be preserved for sibling
