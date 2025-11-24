@@ -129,7 +129,7 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         "ccp_alpha": [Interval(Real, 0.0, None, closed="left")],
         "store_leaf_values": ["boolean"],
         "monotonic_cst": ["array-like", None],
-        "threshold_gain": [Interval(Real, 0.0, 1.0, closed="both")],
+        "threshold_gain": [Interval(Real, 0.0, None, closed="left")],
         "features_group": [list, None],
     }
 
@@ -241,7 +241,8 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         if not np.isnan(overall_sum):
             return None
 
-        missing_values_in_feature_mask = _any_isnan_axis0(X)
+        # Use NumPy to detect columns containing NaNs. X is already float32 and contiguous.
+        missing_values_in_feature_mask = np.isnan(X).any(axis=0)
         return missing_values_in_feature_mask
 
     def _update_feature_index_map(self):
@@ -1549,7 +1550,7 @@ class DecisionTreeClassifier(ClassifierMixin, BaseDecisionTree):
     def _more_tags(self):
         # XXX: nan is only support for dense arrays, but we set this for common test to
         # pass, specifically: check_estimators_nan_inf
-        allow_nan = self.splitter == "best" and self.criterion in {
+        allow_nan = self.splitter in {"best", "TpT"} and self.criterion in {
             "gini",
             "log_loss",
             "entropy",
@@ -1919,7 +1920,7 @@ class DecisionTreeRegressor(RegressorMixin, BaseDecisionTree):
     def _more_tags(self):
         # XXX: nan is only support for dense arrays, but we set this for common test to
         # pass, specifically: check_estimators_nan_inf
-        allow_nan = self.splitter == "best" and self.criterion in {
+        allow_nan = self.splitter in {"best", "TpT"} and self.criterion in {
             "squared_error",
             "friedman_mse",
             "poisson",

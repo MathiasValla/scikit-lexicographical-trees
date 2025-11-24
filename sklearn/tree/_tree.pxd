@@ -28,6 +28,8 @@ cdef struct Node:
     # --- NEW (TpT) ---
     intp_t split_time_index            # chosen t_c at this node (or inherited for leaves)
     float64_t impurity_duration        # duration-leaf impurity (∞ by default)
+    float64_t weighted_n_duration      # weighted count routed to duration branch
+    intp_t n_duration_samples          # raw number of samples routed to duration branch
 
 cdef struct ParentInfo:
     # Structure to store information about the parent of a node
@@ -47,6 +49,7 @@ cdef class BaseTree:
     cdef public intp_t capacity          # Capacity of tree, in terms of nodes
     cdef Node* nodes                     # Array of nodes
     cdef float64_t* value                # (capacity, n_outputs, max_n_classes) array of values
+    cdef float64_t* value_duration       # (capacity, n_outputs, max_n_classes) duration-branch values
     cdef intp_t value_stride             # = n_outputs * max_n_classes
 
     # Methods
@@ -142,6 +145,7 @@ cdef class Tree(BaseTree):
     # Methods
     cdef cnp.ndarray _get_value_ndarray(self)
     cdef cnp.ndarray _get_node_ndarray(self)
+    cdef cnp.ndarray _get_duration_value_ndarray(self)
     cdef cnp.ndarray _get_value_samples_ndarray(self, intp_t node_id)
     cdef cnp.ndarray _get_value_samples_keys(self)
 

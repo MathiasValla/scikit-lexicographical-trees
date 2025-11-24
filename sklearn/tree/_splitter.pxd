@@ -84,6 +84,7 @@ cdef class BaseSplitter:
         SplitRecord* split,
     ) except -1 nogil
     cdef void node_value(self, float64_t* dest) noexcept nogil
+    cdef void node_duration_value(self, float64_t* dest) noexcept nogil
     cdef float64_t node_impurity(self) noexcept nogil
     cdef intp_t pointer_size(self) noexcept nogil
 
