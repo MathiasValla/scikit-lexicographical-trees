@@ -403,6 +403,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
 
         cdef float64_t duration_weight
         cdef intp_t node_missing_count
+        cdef float64_t node_impurity_value = 0
 
         with nogil:
             while not update_stack.empty():
@@ -528,7 +529,6 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 # For leaf nodes, compute the actual leaf impurity
                 # (splitter has already been reset to leaf's samples)
                 # For non-leaf nodes, use the appropriate child impurity from the split record
-                cdef float64_t node_impurity_value
                 if is_leaf:
                     node_impurity_value = splitter.node_impurity()
                 else:
@@ -792,7 +792,6 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 # For leaf nodes, compute the actual leaf impurity
                 # (splitter has already been reset to leaf's samples)
                 # For non-leaf nodes, use the appropriate child impurity from the split record
-                cdef float64_t node_impurity_value
                 if is_leaf:
                     node_impurity_value = splitter.node_impurity()
                 else:
@@ -1238,6 +1237,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         cdef intp_t right_end
         cdef intp_t right_span
         cdef intp_t left_span
+        cdef float64_t node_impurity_value = 0
 
         splitter.node_reset(start, end, &weighted_n_node_samples)
 
@@ -1335,7 +1335,6 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         # For leaf nodes, compute the actual leaf impurity
         # (splitter has already been reset to leaf's samples)
         # For non-leaf nodes, use the appropriate child impurity from the split record
-        cdef float64_t node_impurity_value
         if is_leaf:
             node_impurity_value = splitter.node_impurity()
         else:

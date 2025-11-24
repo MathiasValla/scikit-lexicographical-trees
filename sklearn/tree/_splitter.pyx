@@ -32,6 +32,7 @@ cdef inline bint _tpt_debug_env_enabled():
     return True
 
 cdef bint TPT_SPLITTER_DEBUG = _tpt_debug_env_enabled()
+cdef bint TPT_SPLITTER_DEBUG_BEST = True
 
 # Mitigate precision differences between 32 bit and 64 bit
 cdef float32_t FEATURE_THRESHOLD = 1e-7
@@ -1130,7 +1131,7 @@ cdef inline int node_TpT_split(
     with gil:
         (<TpTSplitter>splitter).last_best_gain = best_penalized_gain
 
-    if TPT_SPLITTER_DEBUG:
+    if TPT_SPLITTER_DEBUG or TPT_SPLITTER_DEBUG_BEST:
         printf("[TPT][SPLITTER][BEST] feat=%lld pos=%lld gain=%g unpen=%g dt=%lld missing=%lld imp_left=%g imp_right=%g imp_dur=%g\n",
                <long long>best_split.feature,
                <long long>best_split.pos,
