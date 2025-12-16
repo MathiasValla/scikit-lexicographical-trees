@@ -431,14 +431,17 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 n_node_samples = end - start
                 splitter.node_reset(start, end, &weighted_n_node_samples)
                 
+                # Always compute THIS node's impurity after resetting splitter to this node's samples
+                # (not just when first==1, because parent_record.impurity was set from stack_record.impurity
+                # which is the parent's impurity, not this node's impurity)
+                parent_record.impurity = splitter.node_impurity()
+                if first:
+                    first = 0
+                
                 is_leaf = (depth >= max_depth or
                            n_node_samples < min_samples_split or
                            n_node_samples < 2 * min_samples_leaf or
                            weighted_n_node_samples < 2 * min_weight_leaf)
-
-                if first:
-                    parent_record.impurity = splitter.node_impurity()
-                    first = 0
 
                 # impurity == 0 with tolerance due to rounding errors
                 is_leaf = is_leaf or parent_record.impurity <= EPSILON
@@ -528,11 +531,13 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
 
                 # For leaf nodes, compute the actual leaf impurity
                 # (splitter has already been reset to leaf's samples)
-                # For non-leaf nodes, use the appropriate child impurity from the split record
+                # For non-leaf nodes, use THIS node's own impurity (parent_record.impurity),
+                # which was computed after splitter.node_reset() set the splitter to this node's samples.
+                # Do NOT use split.impurity_left/right which are the impurities of this node's CHILDREN.
                 if is_leaf:
                     node_impurity_value = splitter.node_impurity()
                 else:
-                    node_impurity_value = split.impurity_left if is_left else split.impurity_right
+                    node_impurity_value = parent_record.impurity
 
                 node_id = tree._update_node(parent, is_left, is_leaf, split_ptr,
                                             node_impurity_value,
@@ -714,14 +719,17 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 n_node_samples = end - start
                 splitter.node_reset(start, end, &weighted_n_node_samples)
                 
+                # Always compute THIS node's impurity after resetting splitter to this node's samples
+                # (not just when first==1, because parent_record.impurity was set from stack_record.impurity
+                # which is the parent's impurity, not this node's impurity)
+                parent_record.impurity = splitter.node_impurity()
+                if first:
+                    first=0
+                
                 is_leaf = (depth >= max_depth or
                            n_node_samples < min_samples_split or
                            n_node_samples < 2 * min_samples_leaf or
                            weighted_n_node_samples < 2 * min_weight_leaf)
-
-                if first:
-                    parent_record.impurity = splitter.node_impurity()
-                    first=0
 
                 # impurity == 0 with tolerance due to rounding errors
                 is_leaf = is_leaf or parent_record.impurity <= EPSILON
@@ -791,11 +799,13 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                 
                 # For leaf nodes, compute the actual leaf impurity
                 # (splitter has already been reset to leaf's samples)
-                # For non-leaf nodes, use the appropriate child impurity from the split record
+                # For non-leaf nodes, use THIS node's own impurity (parent_record.impurity),
+                # which was computed after splitter.node_reset() set the splitter to this node's samples.
+                # Do NOT use split.impurity_left/right which are the impurities of this node's CHILDREN.
                 if is_leaf:
                     node_impurity_value = splitter.node_impurity()
                 else:
-                    node_impurity_value = split.impurity_left if is_left else split.impurity_right
+                    node_impurity_value = parent_record.impurity
                 
                 node_id = tree._add_node(parent, is_left, is_leaf, split_ptr,
                                          node_impurity_value, n_node_samples,
@@ -1244,8 +1254,9 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         # reset n_constant_features for this specific split before beginning split search
         parent_record.n_constant_features = 0
 
-        if is_first:
-            parent_record.impurity = splitter.node_impurity()
+        # Always compute THIS node's impurity after resetting splitter to this node's samples
+        # (not just when is_first==1, because we need the correct impurity for this node)
+        parent_record.impurity = splitter.node_impurity()
 
         n_node_samples = end - start
         is_leaf = (depth >= self.max_depth or
@@ -1334,11 +1345,13 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         
         # For leaf nodes, compute the actual leaf impurity
         # (splitter has already been reset to leaf's samples)
-        # For non-leaf nodes, use the appropriate child impurity from the split record
+        # For non-leaf nodes, use THIS node's own impurity (parent_record.impurity),
+        # which was computed after splitter.node_reset() set the splitter to this node's samples.
+        # Do NOT use split.impurity_left/right which are the impurities of this node's CHILDREN.
         if is_leaf:
             node_impurity_value = splitter.node_impurity()
         else:
-            node_impurity_value = split.impurity_left if is_left else split.impurity_right
+            node_impurity_value = parent_record.impurity
         
         node_id = tree._add_node(parent - tree.nodes
                                  if parent != NULL

@@ -32,7 +32,8 @@ cdef inline bint _tpt_debug_env_enabled():
     return True
 
 cdef bint TPT_SPLITTER_DEBUG = _tpt_debug_env_enabled()
-cdef bint TPT_SPLITTER_DEBUG_BEST = True
+cdef bint TPT_SPLITTER_DEBUG_IMP = False
+cdef bint TPT_SPLITTER_DEBUG_BEST = False
 
 # Mitigate precision differences between 32 bit and 64 bit
 cdef float32_t FEATURE_THRESHOLD = 1e-7
@@ -1045,7 +1046,7 @@ cdef inline int node_TpT_split(
                 criterion.children_impurity_three(&cand_impL, &cand_impR, &cand_impD)
                 if cand_impD == INFINITY or cand_impD == -INFINITY or isnan(cand_impD):
                     cand_impD = 0.0
-                if TPT_SPLITTER_DEBUG:
+                if TPT_SPLITTER_DEBUG_IMP:
                     printf("[TPT][SPLITTER][IMP] feat=%lld parent=%g left=%g right=%g duration=%g\\n",
                            <long long>current_split.feature,
                            impurity,
@@ -1089,6 +1090,12 @@ cdef inline int node_TpT_split(
                     best_split.split_time_index = wave_idx
                     best_split.missing_go_to_left = criterion.missing_go_to_left
                     best_dt = dt
+                    ### ADDITION DEBUG
+                    best_split.impurity_left = cand_impL
+                    best_split.impurity_right = cand_impL
+                    best_split.impurity_duration = cand_impD
+                    best_split.improvement = current_gain
+
                     if best_split.split_time_index < 0:
                         best_split.split_time_index = node_tp
 
@@ -1106,20 +1113,20 @@ cdef inline int node_TpT_split(
 
     criterion.reset()
     criterion.update(best_split.pos)
-    criterion.children_impurity_three(&impL, &impR, &impD)
-    if impD == INFINITY or impD == -INFINITY or isnan(impD):
-        impD = 0.0
-    best_split.impurity_left = impL
-    best_split.impurity_right = impR
-    best_split.impurity_duration = impD
+    #criterion.children_impurity_three(&impL, &impR, &impD)
+    #if impD == INFINITY or impD == -INFINITY or isnan(impD):
+    #    impD = 0.0
+    #best_split.impurity_left = impL
+    #best_split.impurity_right = impR
+    #best_split.impurity_duration = impD
 
-    unpenalized_gain = criterion.impurity_improvement_ternary(impurity, cand_impL, cand_impR, cand_impD)
+    #unpenalized_gain = criterion.impurity_improvement_ternary(impurity, cand_impL, cand_impR, cand_impD)
     if unpenalized_gain <= 0.0:
         if TPT_SPLITTER_DEBUG:
             printf("[TPT][SPLITTER][ABORT_GAIN] feat=%lld pos=%lld unpen=%g penal=%g dt=%lld missing=%lld\n",
                    <long long>best_split.feature,
                    <long long>best_split.pos,
-                   unpenalized_gain,
+                   best_split.improvement,
                    best_penalized_gain,
                    <long long>best_dt,
                    <long long>best_split.n_missing)
@@ -1127,7 +1134,7 @@ cdef inline int node_TpT_split(
             (<TpTSplitter>splitter).last_best_gain = -INFINITY
         return 1
 
-    best_split.improvement = unpenalized_gain
+    #best_split.improvement = unpenalized_gain
     with gil:
         (<TpTSplitter>splitter).last_best_gain = best_penalized_gain
 
@@ -1136,7 +1143,7 @@ cdef inline int node_TpT_split(
                <long long>best_split.feature,
                <long long>best_split.pos,
                best_penalized_gain,
-               unpenalized_gain,
+               best_split.improvement,
                <long long>best_dt,
                <long long>best_split.n_missing,
                best_split.impurity_left,
