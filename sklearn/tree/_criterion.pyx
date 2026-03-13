@@ -362,9 +362,6 @@ cdef class Criterion(BaseCriterion):
             for k in range(self.n_outputs):
                 dest[i].push_back(self.y[j, k])
 
-    # --- Phase 2 (placeholder ternary APIs) ---------------------------------
-    # These default to binary behavior so this commit has NO functional change.
-
     cdef void children_impurity_three(self,
                                       float64_t* impurity_left,
                                       float64_t* impurity_right,

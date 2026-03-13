@@ -25,7 +25,7 @@ cdef struct Node:
     intp_t n_node_samples                # Number of samples at the node
     float64_t weighted_n_node_samples    # Weighted number of samples at the node
     unsigned char missing_go_to_left     # Whether features have missing values
-    # --- NEW (TpT) ---
+    # TpT
     intp_t split_time_index            # chosen t_c at this node (or inherited for leaves)
     float64_t impurity_duration        # duration-leaf impurity (∞ by default)
     float64_t weighted_n_duration      # weighted count routed to duration branch

@@ -3,10 +3,9 @@
 
 from cython cimport final
 from libc.math cimport isnan
-from libc.math cimport exp # For TpT
-from libc.stdlib cimport qsort, getenv
+from libc.math cimport exp
+from libc.stdlib cimport qsort
 from libc.string cimport memcpy
-from libc.stdio cimport printf
 
 from ._criterion cimport Criterion
 from ._utils cimport log
@@ -21,20 +20,6 @@ from scipy.sparse import issparse
 
 cdef float64_t INFINITY = np.inf
 
-cdef inline bint _tpt_debug_env_enabled():
-    cdef char* env = getenv("SCIKIT_TPT_DEBUG")
-    if env == NULL:
-        return False
-    if env[0] == '\0':
-        return False
-    if env[0] == '0' and env[1] == '\0':
-        return False
-    return True
-
-cdef bint TPT_SPLITTER_DEBUG = _tpt_debug_env_enabled()
-cdef bint TPT_SPLITTER_DEBUG_IMP = False
-cdef bint TPT_SPLITTER_DEBUG_BEST = False
-
 # Mitigate precision differences between 32 bit and 64 bit
 cdef float32_t FEATURE_THRESHOLD = 1e-7
 
@@ -45,7 +30,7 @@ cdef float32_t EXTRACT_NNZ_SWITCH = 0.1
 cdef inline void _init_split(SplitRecord* self, intp_t start_pos) noexcept nogil:
     self.impurity_left = INFINITY
     self.impurity_right = INFINITY
-    self.impurity_duration = INFINITY  # NEW (Phase 2)
+    self.impurity_duration = INFINITY
     self.pos = start_pos
     self.feature = 0
     self.threshold = 0.
@@ -959,17 +944,12 @@ cdef inline int node_TpT_split(
 
     cdef double penalized_improvement
     cdef double current_gain
-    cdef double impL, impR, impD
     cdef double cand_impL, cand_impR, cand_impD
     cdef double unpenalized_gain
 
     _init_split(&best_split, end)
     best_split.split_time_index = -1
     partitioner.init_node_split(start, end)
-
-    if TPT_SPLITTER_DEBUG:
-        printf("[TPT][SPLITTER][NODE] start=%lld end=%lld tp=%lld\n",
-               <long long>start, <long long>end, <long long>node_tp)
 
     while (f_i > n_total_constants and
            (n_visited_features < max_features or
@@ -1046,13 +1026,6 @@ cdef inline int node_TpT_split(
                 criterion.children_impurity_three(&cand_impL, &cand_impR, &cand_impD)
                 if cand_impD == INFINITY or cand_impD == -INFINITY or isnan(cand_impD):
                     cand_impD = 0.0
-                if TPT_SPLITTER_DEBUG_IMP:
-                    printf("[TPT][SPLITTER][IMP] feat=%lld parent=%g left=%g right=%g duration=%g\\n",
-                           <long long>current_split.feature,
-                           impurity,
-                           cand_impL,
-                           cand_impR,
-                           cand_impD)
                 current_gain = criterion.impurity_improvement_ternary(impurity, cand_impL, cand_impR, cand_impD)
 
                 wave_idx = -1
@@ -1070,15 +1043,6 @@ cdef inline int node_TpT_split(
                     dt = 0
                     penalized_improvement = current_gain
 
-                if TPT_SPLITTER_DEBUG:
-                    printf("[TPT][SPLITTER][CAND] feat=%lld pos=%lld dt=%lld proxy=%g penal=%g missing=%lld\n",
-                           <long long>current_split.feature,
-                           <long long>current_split.pos,
-                           <long long>dt,
-                           current_gain,
-                           penalized_improvement,
-                           <long long>partitioner.n_missing)
-
                 if penalized_improvement > best_penalized_gain:
                     best_penalized_gain = penalized_improvement
                     current_split.threshold = (feature_values[p_prev] / 2.0 + feature_values[p] / 2.0)
@@ -1089,10 +1053,8 @@ cdef inline int node_TpT_split(
                     best_split = current_split
                     best_split.split_time_index = wave_idx
                     best_split.missing_go_to_left = criterion.missing_go_to_left
-                    best_dt = dt
-                    ### ADDITION DEBUG
                     best_split.impurity_left = cand_impL
-                    best_split.impurity_right = cand_impL
+                    best_split.impurity_right = cand_impR
                     best_split.impurity_duration = cand_impD
                     best_split.improvement = current_gain
 
@@ -1113,46 +1075,15 @@ cdef inline int node_TpT_split(
 
     criterion.reset()
     criterion.update(best_split.pos)
-    #criterion.children_impurity_three(&impL, &impR, &impD)
-    #if impD == INFINITY or impD == -INFINITY or isnan(impD):
-    #    impD = 0.0
-    #best_split.impurity_left = impL
-    #best_split.impurity_right = impR
-    #best_split.impurity_duration = impD
 
-    #unpenalized_gain = criterion.impurity_improvement_ternary(impurity, cand_impL, cand_impR, cand_impD)
+    unpenalized_gain = best_split.improvement
     if unpenalized_gain <= 0.0:
-        if TPT_SPLITTER_DEBUG:
-            printf("[TPT][SPLITTER][ABORT_GAIN] feat=%lld pos=%lld unpen=%g penal=%g dt=%lld missing=%lld\n",
-                   <long long>best_split.feature,
-                   <long long>best_split.pos,
-                   best_split.improvement,
-                   best_penalized_gain,
-                   <long long>best_dt,
-                   <long long>best_split.n_missing)
         with gil:
             (<TpTSplitter>splitter).last_best_gain = -INFINITY
         return 1
 
-    #best_split.improvement = unpenalized_gain
     with gil:
         (<TpTSplitter>splitter).last_best_gain = best_penalized_gain
-
-    if TPT_SPLITTER_DEBUG or TPT_SPLITTER_DEBUG_BEST:
-        printf("[TPT][SPLITTER][BEST] feat=%lld pos=%lld gain=%g unpen=%g dt=%lld missing=%lld imp_left=%g imp_right=%g imp_dur=%g\n",
-               <long long>best_split.feature,
-               <long long>best_split.pos,
-               best_penalized_gain,
-               best_split.improvement,
-               <long long>best_dt,
-               <long long>best_split.n_missing,
-               best_split.impurity_left,
-               best_split.impurity_right,
-               best_split.impurity_duration)
-
-    parent_record.n_constant_features = n_total_constants
-    split[0] = best_split
-    return 0
 
     # Respect invariant for constant features: the original order of
     # element in features[:n_known_constants] must be preserved for sibling
@@ -1164,15 +1095,6 @@ cdef inline int node_TpT_split(
     parent_record.n_constant_features = n_total_constants
     split[0] = best_split
     return 0
-
-
-
-
-
-
-
-
-
 # Sort n-element arrays pointed to by feature_values and samples, simultaneously,
 # by the values in feature_values. Algorithm: Introsort (Musser, SP&E, 1997).
 cdef inline void sort(float32_t* feature_values, intp_t* samples, intp_t n) noexcept nogil:

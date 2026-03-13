@@ -19,11 +19,10 @@ cdef struct SplitRecord:
     float64_t improvement     # Impurity improvement given parent node.
     float64_t impurity_left   # Impurity of the left split.
     float64_t impurity_right  # Impurity of the right split.
-    float64_t impurity_duration      # NEW (Phase 2): impurity of the “duration” bucket
+    float64_t impurity_duration      # TpT duration bucket impurity
     unsigned char missing_go_to_left  # Controls if missing values go to the left node.
     intp_t n_missing            # Number of missing values for the feature being split on
-    intp_t split_time_index     # NEW (TpT): t_c as wave index for the chosen best split
-    
+    intp_t split_time_index     # TpT wave index for the chosen split
 
 
 cdef class BaseSplitter:

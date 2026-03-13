@@ -8,14 +8,13 @@ randomized trees. Single and multi-output problems are both handled.
 
 import copy
 import numbers
+import numpy as np
 from abc import ABCMeta, abstractmethod
 from math import ceil
 from numbers import Integral, Real
-
-import numpy as np
 from scipy.sparse import issparse
 
-from ..base import (
+from sklearn.base import (
     BaseEstimator,
     ClassifierMixin,
     MultiOutputMixin,
@@ -24,26 +23,21 @@ from ..base import (
     clone,
     is_classifier,
 )
-from ..utils import Bunch, check_random_state, compute_sample_weight
-from ..utils._param_validation import Hidden, Interval, RealNotInt, StrOptions
-from ..utils.multiclass import (
+from sklearn.utils import Bunch, check_random_state, compute_sample_weight
+from sklearn.utils._param_validation import Hidden, Interval, RealNotInt, StrOptions
+from sklearn.utils.multiclass import (
     _check_partial_fit_first_call,
     check_classification_targets,
 )
-from ..utils.validation import (
+from sklearn.utils.validation import (
     _assert_all_finite_element_wise,
     _check_sample_weight,
     assert_all_finite,
     check_is_fitted,
 )
-
 from . import _criterion, _splitter, _tree
 from ._criterion import BaseCriterion
 from ._splitter import BaseSplitter
-from ._splitter import (
-    LexicoRFSplitter,
-    TpTSplitter,
-)
 from ._tree import (
     BestFirstTreeBuilder,
     DepthFirstTreeBuilder,
@@ -241,8 +235,7 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         if not np.isnan(overall_sum):
             return None
 
-        # Use NumPy to detect columns containing NaNs. X is already float32 and contiguous.
-        missing_values_in_feature_mask = np.isnan(X).any(axis=0)
+        missing_values_in_feature_mask = _any_isnan_axis0(X)
         return missing_values_in_feature_mask
 
     def _update_feature_index_map(self):
