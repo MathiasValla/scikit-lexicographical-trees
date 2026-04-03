@@ -94,8 +94,10 @@ cdef class Splitter(BaseSplitter):
     cdef const float64_t[:, ::1] y
 
     cdef float64_t threshold_gain
+    cdef float64_t last_best_gain
     cdef public dict feature_index_map
     cdef public intp_t node_time_index  # TpT: inherited parent time index t_p for the node being split
+    cdef public bint use_penalized_stop_gain
 
     # Monotonicity constraints for each feature.
     # The encoding is as follows:

@@ -358,6 +358,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
         cdef intp_t right_span
         cdef intp_t left_span
         cdef float64_t gain_normalized  # TpT: Pour normaliser le gain pénalisé
+        cdef float64_t gain_for_stop
 
         cdef stack[StackRecord] builder_stack
         cdef stack[StackRecord] update_stack
@@ -504,7 +505,10 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                         # dissimilar to v0.18
                         # TpT: Normaliser le gain pénalisé (comme TpT.py ligne 721)
                         # gain_ratio = (gain_penalized * n_samples_node) / n_total_samples
-                        gain_normalized = (split.improvement * <float64_t>n_node_samples) / <float64_t>n_total_samples
+                        gain_for_stop = split.improvement
+                        if splitter.use_penalized_stop_gain:
+                            gain_for_stop = splitter.last_best_gain
+                        gain_normalized = (gain_for_stop * <float64_t>n_node_samples) / <float64_t>n_total_samples
                         is_leaf = (is_leaf or split.pos >= end or
                                    (gain_normalized + EPSILON <
                                     min_impurity_decrease))
@@ -786,7 +790,10 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
                         # dissimilar to v0.18
                         # TpT: Normaliser le gain pénalisé (comme TpT.py ligne 721)
                         # gain_ratio = (gain_penalized * n_samples_node) / n_total_samples
-                        gain_normalized = (split.improvement * <float64_t>n_node_samples) / <float64_t>n_total_samples
+                        gain_for_stop = split.improvement
+                        if splitter.use_penalized_stop_gain:
+                            gain_for_stop = splitter.last_best_gain
+                        gain_normalized = (gain_for_stop * <float64_t>n_node_samples) / <float64_t>n_total_samples
                         is_leaf = (is_leaf or split.pos >= end or
                                    (gain_normalized + EPSILON <
                                     min_impurity_decrease))
@@ -1238,6 +1245,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         cdef intp_t child_tp3  # TpT
         cdef intp_t child_end
         cdef float64_t gain_normalized  # TpT: Pour normaliser le gain pénalisé
+        cdef float64_t gain_for_stop
         cdef float64_t duration_weight = 0.0
         cdef intp_t node_missing_count = 0
         cdef intp_t left_end
@@ -1319,7 +1327,10 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
                 # splitting early, producing trees that are dissimilar to v0.18
                 # TpT: Normaliser le gain pénalisé par n_total_samples (comme TpT.py ligne 721)
                 # gain_ratio = (gain_penalized * n_node_samples) / n_total_samples
-                gain_normalized = (split.improvement * <float64_t>n_node_samples) / <float64_t>self.n_total_samples
+                gain_for_stop = split.improvement
+                if splitter.use_penalized_stop_gain:
+                    gain_for_stop = splitter.last_best_gain
+                gain_normalized = (gain_for_stop * <float64_t>n_node_samples) / <float64_t>self.n_total_samples
                 is_leaf = (is_leaf or split.pos >= end or
                            gain_normalized + EPSILON < min_impurity_decrease)
         else:

@@ -181,6 +181,8 @@ cdef class Splitter(BaseSplitter):
         self.monotonic_cst = monotonic_cst
         self.with_monotonic_cst = monotonic_cst is not None
         self.threshold_gain = threshold_gain
+        self.last_best_gain = -INFINITY
+        self.use_penalized_stop_gain = False
         self.feature_index_map = feature_index_map
 
     def __reduce__(self):
@@ -266,6 +268,8 @@ cdef class Splitter(BaseSplitter):
         self.sample_weight = sample_weight
 
         self.threshold_gain = threshold_gain
+        self.last_best_gain = -INFINITY
+        self.use_penalized_stop_gain = False
         self.feature_index_map = feature_index_map
 
         self.criterion.init(
@@ -1063,7 +1067,7 @@ cdef inline int node_TpT_split(
 
     if best_penalized_gain == -INFINITY or best_split.pos >= end:
         with gil:
-            (<TpTSplitter>splitter).last_best_gain = -INFINITY
+            splitter.last_best_gain = -INFINITY
         return 1
 
     partitioner.partition_samples_final(
@@ -1079,11 +1083,11 @@ cdef inline int node_TpT_split(
     unpenalized_gain = best_split.improvement
     if unpenalized_gain <= 0.0:
         with gil:
-            (<TpTSplitter>splitter).last_best_gain = -INFINITY
+            splitter.last_best_gain = -INFINITY
         return 1
 
     with gil:
-        (<TpTSplitter>splitter).last_best_gain = best_penalized_gain
+        splitter.last_best_gain = best_penalized_gain
 
     # Respect invariant for constant features: the original order of
     # element in features[:n_known_constants] must be preserved for sibling
@@ -2184,9 +2188,19 @@ cdef class RandomSparseSplitter(Splitter):
             parent_record,
         )
 cdef class TpTSplitter(Splitter):
-    """Splitter for finding the TpT split on dense data."""
+    """Splitter for finding TpT splits on dense data.
+
+    Notes
+    -----
+    This Phase-1 TpT implementation currently assumes fully observed input
+    features during split search. Missing-value routing / duration-branch
+    handling is not yet supported for production use in this splitter.
+
+    TpT wrappers therefore force ``monotonic_cst=None`` and the TpT split
+    search should be treated as incompatible with monotonic constraints for
+    now.
+    """
     cdef DensePartitioner partitioner
-    cdef public float64_t last_best_gain
 
     cdef int init(
         self,
@@ -2205,6 +2219,7 @@ cdef class TpTSplitter(Splitter):
         # Currently hardcoded to 0 (always relative to root)
         # Future enhancement: Receive from builder as parent_split_time_index parameter
         self.node_time_index = 0
+        self.use_penalized_stop_gain = True
         # if passing from builder
         self.feature_index_map = feature_index_map
 
