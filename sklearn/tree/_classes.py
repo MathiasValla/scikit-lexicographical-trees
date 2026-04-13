@@ -123,7 +123,7 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
         "ccp_alpha": [Interval(Real, 0.0, None, closed="left")],
         "store_leaf_values": ["boolean"],
         "monotonic_cst": ["array-like", None],
-        "threshold_gain": [Interval(Real, 0.0, None, closed="left")],
+        "threshold_gain": [Interval(Real, 0.0, 1.0, closed="both")],
         "features_group": [list, None],
     }
 
